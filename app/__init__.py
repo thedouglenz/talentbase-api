@@ -19,11 +19,8 @@ def create_app():
 
     with app.app_context():
         from . import resources
-
         api.add_resource(resources.UsersResource, '/users/')
         api.add_resource(resources.UserResource, '/users/<int:id>')
-
         api.init_app(app)
 
-    print(api.blueprint)
     return app
