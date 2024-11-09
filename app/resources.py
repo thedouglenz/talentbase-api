@@ -2,7 +2,7 @@ from flask_restful import Resource, reqparse, marshal_with, abort
 from flask_httpauth import HTTPBasicAuth
 from flask import g
 
-from .models import UserModel, db
+from .models.user import UserModel, db
 from .types import user_fields, auth_fields
 
 user_args = reqparse.RequestParser()
@@ -45,7 +45,6 @@ class UsersResource(Resource):
         return user, 201
 
 class UserResource(Resource):
-
     @marshal_with(auth_fields)
     @auth.login_required
     def get_auth_token(self):

@@ -1,12 +1,12 @@
 from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
 from flask_restful import Api
 from flask_migrate import Migrate
 from dotenv import load_dotenv
 
+from .database import db
+
 load_dotenv()
 
-db = SQLAlchemy()
 migrate = Migrate()
 api = Api(prefix='/api')
 
