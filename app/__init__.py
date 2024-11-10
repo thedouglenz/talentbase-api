@@ -25,6 +25,8 @@ def create_app():
         api.add_resource(resources.UserResource, '/users/<int:id>')
         api.add_resource(resources.LoginResource, '/login/')
         api.add_resource(resources.FoldersResource, '/folders/')
+        api.add_resource(resources.FolderResource, '/folders/<int:id>')
+
         api.init_app(app)
 
     return app

@@ -114,8 +114,45 @@ class FoldersResource(Resource):
            args = create_folder_schema.load(request.json)
         except ValidationError as err:
             return {"message": "Validation errors", "errors": err.messages}, 400
-        folder = FolderModel(name=args['name'], owner_id=current_user.id)
+        folder = FolderModel(name=args['name'], owner_id=current_user.id, parent_id=args.get('parent_id'))
         db.session.add(folder)
         db.session.commit()
-
         return folder_schema.dump(folder)
+
+class FolderResource(Resource):
+    @jwt_required()
+    def patch(self, id):
+        try:
+            args = folder_schema.load(request.json, partial=True)
+        except ValidationError as err:
+            return {"message": "Validation errors", "errors": err.messages}, 400
+
+        folder = FolderModel.query.filter_by(id=id).first()
+        if not folder:
+            abort(404, message="Folder not found")
+
+        if(current_user.id != folder.owner_id):
+            abort(403, message="Unauthorized")
+
+        name = args.get("name")
+        parent_id = args.get("parent_id")
+        if not name and not parent_id:
+            abort(400, message="No fields to update")
+
+        if name:
+            colliding_folder = FolderModel.query.filter_by(name=name, owner_id=current_user.id).one_or_none()
+            if colliding_folder:
+                abort(400, message="Folder with this name already exists")
+            folder.name = name if name else folder.name
+
+        if parent_id:
+            new_parent = FolderModel.query.filter_by(
+                id=args["parent_id"], owner_id=current_user.id).one_or_none()
+            if not new_parent:
+                abort(404, message="Parent folder not found")
+            folder.parent_id = args["parent_id"]
+
+        if name or parent_id:
+            folder.updated_at = func.now()
+
+        db.session.commit()
