@@ -1,40 +1,54 @@
-from flask_restful import Resource, reqparse, marshal_with, abort
-from flask_httpauth import HTTPBasicAuth
-from flask import g
+from flask_restful import Resource, abort
+from flask import g, request
+from marshmallow import ValidationError
+from sqlalchemy import func
+from flask_jwt_extended import jwt_required, current_user
 
 from .models.user import UserModel, db
-from .types import user_fields, auth_fields
+from .models.folder import FolderModel
+from .types import UserSchema, FolderSchema, LoginSchema, RegisterSchema, FolderQuerySchema, CreateFolderSchema
+from .extensions import jwt
 
-user_args = reqparse.RequestParser()
-user_args.add_argument('name', type=str, required=True, help="Name cannot be blank")
-user_args.add_argument('email', type=str, required=True, help="Email cannot be blank")
-user_args.add_argument('password', type=str)
+create_folder_schema = CreateFolderSchema()
+folder_schema = FolderSchema()
+folder_query_schema = FolderQuerySchema()
+user_schema = UserSchema()
 
-auth = HTTPBasicAuth()
+@jwt.user_identity_loader
+def user_identity_lookup(user):
+    return user.id
 
-@auth.verify_password
-def verify_password(username_or_token, password):
-    # first try to authenticate by token
-    user = UserModel.verify_auth_token(username_or_token)
-    if not user:
-        # try to authenticate with username/password
-        user = UserModel.query.filter_by(name=username_or_token).first()
-        if not user or not user.verify_password(password):
-            return False
-    g.user = user
-    return True
+@jwt.user_lookup_loader
+def user_lookup_callback(_jwt_header, jwt_data):
+    identity = jwt_data["sub"]
+    return UserModel.query.filter_by(id=identity).one_or_none()
+
+class LoginResource(Resource):
+    def post(self):
+        schema = LoginSchema()
+        try:
+            args = schema.load(request.json)
+        except ValidationError as err:
+            return {"message": "Validation errors", "errors": err.messages}, 400
+
+        user = UserModel.query.filter_by(email=args['email']).one_or_none()
+        if not user or not user.verify_password(args['password']):
+            abort(401, message="Invalid credentials")
+        return user.generate_jwt()
 
 class UsersResource(Resource):
-    @marshal_with(user_fields)
     def get(self):
-        users = UserModel.query.all()
-        return users
+        users = UserModel.query.filter_by(deleted=False).all()
+        return user_schema.dump(users, many=True)
 
-    @marshal_with(user_fields)
     def post(self):
-        args = user_args.parse_args()
-        if not args['password']:
-            abort(400, message="New user registration requires password")
+        """New user registration"""
+        schema = RegisterSchema()
+        try:
+            args = schema.load(request.json)
+        except ValidationError as err:
+            return {"message": "Validation errors", "errors": err.messages}, 400
+
         user = UserModel(
             name = args['name'],
             email = args['email']
@@ -42,40 +56,66 @@ class UsersResource(Resource):
         user.hash_password(args['password'])
         db.session.add(user)
         db.session.commit()
-        return user, 201
+
+        return user.generate_jwt()
 
 class UserResource(Resource):
-    @marshal_with(auth_fields)
-    @auth.login_required
-    def get_auth_token(self):
-        token = g.user.generate_auth_token()
-        return {'token': token.decode('ascii')}
-
-    @marshal_with(user_fields)
     def get(self, id):
         user = UserModel.query.filter_by(id=id).first()
         if not user:
             abort(404, message="User not found")
-        return user
+        return user_schema.dump(user)
 
-    @marshal_with(user_fields)
-    @auth.login_required
     def patch(self, id):
-        args = user_args.parse_args()
+        try:
+            args = user_schema.load(request.json, partial=True)
+        except ValidationError as err:
+            return {"message": "Validation errors", "errors": err.messages}, 400
+
         user = UserModel.query.filter_by(id=id).first()
         if not user:
             abort(404, message="User not found")
+
         user.name = args["name"]
         user.email = args["email"]
-        db.session.commit()
-        return user
+        user.updated_at = func.now()
 
-    @marshal_with(user_fields)
+        db.session.commit()
+        return user_schema.dump(user)
+
     def delete(self, id):
         user = UserModel.query.filter_by(id=id).first()
         if not user:
             abort(404, message="User not found")
-        db.session.delete(user)
         user.deleted = True
+        user.deleted_at = func.now()
         db.session.commit()
-        return user
+        return user_schema.dump(user)
+
+class FoldersResource(Resource):
+    @jwt_required()
+    def get(self):
+        errors = folder_query_schema.validate(request.args)
+        if errors:
+            abort(400, message="Validation errors", errors=errors)
+        if not current_user:
+            abort(401, message="Unauthorized") 
+        args = folder_query_schema.dump(request.args)
+        if current_user.id != args["user_id"]:
+            abort(403, message="Forbidden")
+        folders = FolderModel.query.filter_by(owner_id=args["user_id"], deleted=False).paginate(page=args["page"], per_page=args["per_page"])
+        if not folders:
+            abort(404, message="No folders found")
+        return folder_schema.dump(folders.items, many=True)
+
+    @jwt_required()
+    def post(self):
+        try:
+           args = create_folder_schema.load(request.json)
+        except ValidationError as err:
+            return {"message": "Validation errors", "errors": err.messages}, 400
+        folder = FolderModel(name=args['name'], owner_id=current_user.id)
+        db.session.add(folder)
+        db.session.commit()
+
+        return folder_schema.dump(folder)

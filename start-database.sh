@@ -47,4 +47,4 @@ docker run -d \
   -e POSTGRES_PASSWORD="$DB_PASSWORD" \
   -e POSTGRES_DB="$DATABASE_NAME" \
   -p "$DB_PORT":5432 \
-  postgis/postgis:17-master && echo "Database container '$DB_CONTAINER_NAME' was successfully created"
+  postgres:13.16 && echo "Database container '$DB_CONTAINER_NAME' was successfully created"

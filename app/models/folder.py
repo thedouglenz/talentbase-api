@@ -1,3 +1,4 @@
+from typing import Optional
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Integer, String, DateTime, Boolean, func
@@ -13,15 +14,16 @@ class FolderModel(db.Model):
     owner = db.relationship('UserModel', back_populates='folders')
 
     name: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
-    parent_id: Mapped[int] = mapped_column(Integer, db.ForeignKey('folders.id'))
+    parent_id: Mapped[Optional[int]] = mapped_column(Integer, db.ForeignKey('folders.id'))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), server_onupdate=func.now())
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    deleted_at: Mapped[datetime] = mapped_column(DateTime)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
     def __repr__(self):
         return f"Folder(name = {self.name})"
 
-    def __init__(self, name, parent_id=None):
+    def __init__(self, name, parent_id=None, owner_id=None):
         self.name = name
         self.parent_id = parent_id
+        self.owner_id = owner_id
